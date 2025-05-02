@@ -1,3 +1,4 @@
+
 # Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1058,10 +1059,21 @@ class ConvertToMultiChannelBasedOnBratsClasses(Transform):
         if img.ndim == 4 and img.shape[0] == 1:
             img = img.squeeze(0)
 
-        result = [(img == 1) | (img == 4), (img == 1) | (img == 4) | (img == 2), img == 4]
-        # merge labels 1 (tumor non-enh) and 4 (tumor enh) and 2 (large edema) to WT
-        # label 4 is ET
+        ## merge: region-based
+        ## labels 1 (tumor non-enh) and 4 (tumor enh) and 2 (large edema): WT
+        ## label 4 : ET
+        # result = [(img == 1) | (img == 4), (img == 1) | (img == 4) | (img == 2), img == 4]
+
+        ## no merge: label-based
+        result = [
+            img == 0,  # background
+            img == 1,  # non-enhancing tumor core
+            img == 2,  # edema
+            img == 4   # enhancing tumor
+        ]
+
         return torch.stack(result, dim=0) if isinstance(img, torch.Tensor) else np.stack(result, axis=0)
+
 
 
 class AddExtremePointsChannel(Randomizable, Transform):

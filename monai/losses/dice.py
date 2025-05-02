@@ -806,6 +806,91 @@ class DiceCELoss(_Loss):
 
         return total_loss
 
+class CELoss(_Loss):
+    """
+    Compute both Dice loss and Cross Entropy Loss, and return the weighted sum of these two losses.
+    The details of Dice loss is shown in ``monai.losses.DiceLoss``.
+    The details of Cross Entropy Loss is shown in ``torch.nn.CrossEntropyLoss`` and ``torch.nn.BCEWithLogitsLoss()``.
+    In this implementation, two deprecated parameters ``size_average`` and ``reduce``, and the parameter ``ignore_index`` are
+    not supported.
+
+    """
+
+    def __init__(
+        self,
+        include_background: bool = True,
+        to_onehot_y: bool = False,
+        sigmoid: bool = False,
+        softmax: bool = False,
+        other_act: Callable | None = None,
+        squared_pred: bool = False,
+        jaccard: bool = False,
+        reduction: str = "mean",
+        smooth_nr: float = 1e-5,
+        smooth_dr: float = 1e-5,
+        batch: bool = False,
+    ) -> None:
+        super().__init__()
+        reduction = look_up_option(reduction, DiceCEReduction).value
+
+        self.cross_entropy = nn.CrossEntropyLoss(weight=weight, reduction=reduction, label_smoothing=label_smoothing)
+        self.binary_cross_entropy = nn.BCEWithLogitsLoss(pos_weight=weight, reduction=reduction)
+
+    def ce(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Compute CrossEntropy loss for the input logits and target.
+        Will remove the channel dim according to PyTorch CrossEntropyLoss:
+        https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html?#torch.nn.CrossEntropyLoss.
+
+        """
+        n_pred_ch, n_target_ch = input.shape[1], target.shape[1]
+        if n_pred_ch != n_target_ch and n_target_ch == 1:
+            target = torch.squeeze(target, dim=1)
+            target = target.long()
+        elif not torch.is_floating_point(target):
+            target = target.to(dtype=input.dtype)
+
+        return self.cross_entropy(input, target)  # type: ignore[no-any-return]
+
+    def bce(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Compute Binary CrossEntropy loss for the input logits and target in one single class.
+
+        """
+        if not torch.is_floating_point(target):
+            target = target.to(dtype=input.dtype)
+
+        return self.binary_cross_entropy(input, target)  # type: ignore[no-any-return]
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            input: the shape should be BNH[WD].
+            target: the shape should be BNH[WD] or B1H[WD].
+
+        Raises:
+            ValueError: When number of dimensions for input and target are different.
+            ValueError: When number of channels for target is neither 1 (without one-hot encoding) nor the same as input.
+
+        Returns:
+            torch.Tensor: value of the loss.
+
+        """
+        if input.dim() != target.dim():
+            raise ValueError(
+                "the number of dimensions for input and target should be the same, "
+                f"got shape {input.shape} (nb dims: {len(input.shape)}) and {target.shape} (nb dims: {len(target.shape)}). "
+                "if target is not one-hot encoded, please provide a tensor with shape B1H[WD]."
+            )
+
+        if target.shape[1] != 1 and target.shape[1] != input.shape[1]:
+            raise ValueError(
+                "number of channels for target is neither 1 (without one-hot encoding) nor the same as input, "
+                f"got shape {input.shape} and {target.shape}."
+            )
+
+        ce_loss = self.ce(input, target) if input.shape[1] != 1 else self.bce(input, target)
+        return ce_loss
 
 class DiceFocalLoss(_Loss):
     """
