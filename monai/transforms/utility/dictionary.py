@@ -1309,8 +1309,12 @@ class ConvertToMultiChannelBasedOnBratsClassesd(MapTransform):
 
     def __call__(self, data: Mapping[Hashable, NdarrayOrTensor]) -> dict[Hashable, NdarrayOrTensor]:
         d = dict(data)
-        for key in self.key_iterator(d):
-            d[key] = self.converter(d[key])
+        # for key in self.key_iterator(d):
+        #     d[key] = self.converter(d[key])
+        for key in self.key_iterator(d): # [0,1,2,4]
+            tumor_channels = self.converter(d[key])
+            background = (d[key] == 0).astype(np.uint8)
+            d[key] = np.stack([background] + list(tumor_channels), axis=0)
         return d
 
 
